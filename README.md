@@ -82,3 +82,11 @@ License
 -------
 
 [LICENSE-BSD2](LICENSE-BSD2)
+
+
+Update 0.1.7.1
+------
+
+remove Pipeline
+
+all commands [ssdb API]http://ssdb.io/docs/zh_cn/php/index.html

@@ -48,17 +48,6 @@ class Connection(threading.local):
         self.sock.close()
         self.sock = self.parser = None
 
-    @staticmethod
-    def encode_str(args):
-        lst = []
-        pattern = '%d\n%s\n'
-
-        for arg in args:
-            size = len(binary(str(arg)))
-            lst.append(pattern % (size, arg))
-        lst.append('\n')
-        return ''.join(lst)
-
     def request(self):
         # lazy connect
         if self.sock is None:

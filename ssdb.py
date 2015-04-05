@@ -4,14 +4,13 @@
 Python client for https://github.com/ideawu/ssdb
 """
 
-__version__ = '0.1.7'
+__version__ = '0.1.7.1'
 __license__ = 'bsd2'
 
-import spp
 import sys
 import socket
 import threading
-import contextlib
+import spp
 
 
 if sys.version > '3':
@@ -24,94 +23,6 @@ else:
     string = str
 
 
-commands = {
-    'set': int,
-    'setx': int,
-    'expire': int,
-    'ttl': int,
-    'setnx': int,
-    'get': str,
-    'getset': str,
-    'del': int,
-    'incr': int,
-    'exists': bool,
-    'getbit': int,
-    'setbit': int,
-    'countbit': int,
-    'substr': str,
-    'strlen': int,
-    'keys': list,
-    'scan': list,
-    'rscan': list,
-    'multi_set': int,
-    'multi_get': list,
-    'multi_del': int,
-    'hset': int,
-    'hget': str,
-    'hdel': int,
-    'hincr': int,
-    'hexists': bool,
-    'hsize': int,
-    'hlist': list,
-    'hrlist': list,
-    'hkeys': list,
-    'hgetall': list,
-    'hscan': list,
-    'hrscan': list,
-    'hclear': int,
-    'multi_hset': int,
-    'multi_hget': list,
-    'multi_hdel': int,
-    'zset': int,
-    'zget': int,
-    'zdel': int,
-    'zincr': int,
-    'zexists': bool,
-    'zsize': int,
-    'zlist': list,
-    'zrlist': list,
-    'zkeys': list,
-    'zscan': list,
-    'zrscan': list,
-    'zrank': int,
-    'zrrank': int,
-    'zrange': list,
-    'zrrange': list,
-    'zclear': int,
-    'zcount': int,
-    'zsum': int,
-    'zavg': float,
-    'zremrangebyrank': int,
-    'zremrangebyscore': int,
-    'multi_zset': int,
-    'multi_zget': list,
-    'multi_zdel': int,
-    'qsize': int,
-    'qclear': int,
-    'qfront': str,
-    'qback': str,
-    'qget': str,
-    'qslice': list,
-    'qpush': int,
-    'qpush_front': int,
-    'qpush_back': int,
-    'qpop': str,
-    'qpop_front': str,
-    'qpop_back': str,
-    'qlist': list,
-    'qrlist': list,
-    'info': list
-}
-
-conversions = {
-    int: lambda lst: int(lst[0]),
-    str: lambda lst: str(lst[0]),
-    float: lambda lst: float(lst[0]),
-    bool: lambda lst: bool(int(lst[0])),
-    list: lambda lst: list(lst)
-}
-
-
 class SSDBException(Exception):
     pass
 
@@ -119,24 +30,26 @@ class SSDBException(Exception):
 class Connection(threading.local):
 
     def __init__(self, host='0.0.0.0', port=8888):
+        super(Connection, self).__init__()
         self.host = host
         self.port = port
-        self.sock = None
         self.commands = []
-        self.parser = spp.Parser()
+        self.sock = self.parser = None
 
     def connect(self):
         self.sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
         self.sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
         self.sock.setblocking(1)
         self.sock.connect((self.host, self.port))
+        self.parser = spp.Parser()
 
     def close(self):
         self.parser.clear()
         self.sock.close()
-        self.sock = None
+        self.sock = self.parser = None
 
-    def encode(self, args):
+    @staticmethod
+    def encode_str(args):
         lst = []
         pattern = '%d\n%s\n'
 
@@ -146,21 +59,18 @@ class Connection(threading.local):
         lst.append('\n')
         return ''.join(lst)
 
-    def build(self, type, data):
-        return conversions[type](data)
-
-    def request(self):  # noqa
+    def request(self):
         # lazy connect
         if self.sock is None:
             self.connect()
 
         # send commands
-        cmds = list(map(self.encode, self.commands))
-        self.sock.sendall(binary(''.join(cmds)))
+        buf = ''.join(['%d\n%s\n' % (len(str(i)), str(i)) for i in self.commands] + ['\n'])
+        self.sock.sendall(buf)
 
-        chunks = []
+        chunk = None
 
-        while len(chunks) < len(self.commands):
+        while 1:
             buf = self.sock.recv(4096)
 
             if not isinstance(buf, bytes) and not len(buf):
@@ -170,41 +80,21 @@ class Connection(threading.local):
             self.parser.feed(string(buf))
             chunk = self.parser.get()
             if chunk is not None:
-                chunks.append(chunk)
+                break
 
-        responses = []
+        cmd = self.commands[0]
+        self.commands = []
+        status, body = chunk[0], chunk[1:]
 
-        for index, chunk in enumerate(chunks):
-            cmd = self.commands[index]
-            status, body = chunk[0], chunk[1:]
-
-            if status == 'ok':
-                data = self.build(commands[cmd[0]], body)
-                responses.append(data)
-            elif status == 'not_found':
-                responses.append(None)
-            else:
-                raise SSDBException('%r on command %r', status, cmd)
-        self.commands[:] = []
-        return responses
+        if status == 'ok':
+            return body[0] if len(body) == 1 else body
+        elif status == 'not_found':
+            return None
+        else:
+            raise SSDBException('%r on command %r', status, cmd)
 
 
-class BaseClient(object):
-
-    def __init__(self):
-        def create_method(command):
-            def method(*args):
-                self.conn.commands.append((command, ) + args)
-                if not isinstance(self, Pipeline):
-                    return self.conn.request()[0]
-            return method
-
-        for command in commands:
-            name = {'del': 'delete'}.get(command, command)
-            setattr(self, name, create_method(command))
-
-
-class Client(BaseClient):
+class Client(object):
 
     def __init__(self, host='0.0.0.0', port=8888):
         super(Client, self).__init__()
@@ -215,16 +105,15 @@ class Client(BaseClient):
     def close(self):
         self.conn.close()
 
-    @contextlib.contextmanager
-    def pipeline(self):
-        yield Pipeline(self.conn)
+    def __getattr__(self, cmd):
+        def create_method(command):
+            def method(*args):
+                self.conn.commands = (command, ) + args
+                return self.conn.request()
+            return method
 
+        cmd = {'delete': 'del'}.get(cmd, cmd)
+        if cmd not in self.__dict__:
+            self.__dict__[cmd] = create_method(cmd)
 
-class Pipeline(BaseClient):
-
-    def __init__(self, conn):
-        super(Pipeline, self).__init__()
-        self.conn = conn
-
-    def execute(self):
-        return self.conn.request()
+        return self.__dict__[cmd]

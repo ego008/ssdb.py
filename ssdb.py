@@ -95,14 +95,14 @@ class Client(object):
         self.conn.close()
 
     def __getattr__(self, cmd):
-        def create_method(command):
-            def method(*args):
-                self.conn.commands = (command, ) + args
-                return self.conn.request()
-            return method
-
         cmd = {'delete': 'del'}.get(cmd, cmd)
-        if cmd not in self.__dict__:
+        try:
+            return self.__dict__[cmd]
+        except KeyError:
+            def create_method(command):
+                def method(*args):
+                    self.conn.commands = (command, ) + args
+                    return self.conn.request()
+                return method
             self.__dict__[cmd] = create_method(cmd)
-
-        return self.__dict__[cmd]
+            return self.__dict__[cmd]

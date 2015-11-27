@@ -44,8 +44,10 @@ class Connection(threading.local):
         self.parser = spp.Parser()
 
     def close(self):
-        self.parser.clear()
-        self.sock.close()
+        if self.parser:
+            self.parser.clear()
+        if self.sock:
+            self.sock.close()
         self.sock = self.parser = None
 
     def request(self):
@@ -55,7 +57,13 @@ class Connection(threading.local):
 
         # send commands
         buf = ''.join(['%d\n%s\n' % (len(str(i)), str(i)) for i in self.commands] + ['\n'])
-        self.sock.sendall(buf)
+        # fixed [Errno 32] Broken pipe
+        try:
+            self.sock.sendall(buf)
+        except:
+            self.close()
+            self.connect()
+            self.sock.sendall(buf)
 
         chunk = None
 

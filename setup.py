@@ -12,14 +12,14 @@ from setuptools import setup
 
 setup(
     name='ssdb.py',
-    version='0.1.7',
+    version='0.1.9',
     author='hit9',
     author_email='nz2324@126.com',
     description="Ssdb Python Client Library",
     long_description=__doc__,
     license='bsd2',
     keywords=['ssdb', 'client', 'library'],
-    url='https://github.com/hit9/ssdb.py',
+    url='https://github.com/ego008/ssdb.py',
     py_modules=['ssdb'],
     install_requires=['spp>=0.0.5'],
     classifiers=[
